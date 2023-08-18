@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Mon Dec  2 15:40:37 2019
+@author: Wei-Cheng (Winston) Lin
 
-@author: winston
+Main training script.
 """
+import os
 import torch
 import sys
 import numpy as np
-import os
-from utils import cc_coef, evaluation_metrics, ParymidTempPool, RdnMultiRslChunk
 from tqdm import tqdm
+from utils import cc_coef, evaluation_metrics, TempParymidPool, RdnMultiRslChunk
 import torch.optim as optim
 import matplotlib.pyplot as plt
 from dataloader import MspPodcastDataset_SpeechText
@@ -18,20 +18,16 @@ from torch.utils.data.sampler import SubsetRandomSampler
 from model import TransformerENC_CoAtten
 
 
-
 def collate_fn_train(batch):
     # list of batched data/labels
     data_speech, data_text, label_act, label_dom, label_val = zip(*batch)
-    
-    actual_lens_speech = []
-    actual_lens_text = []
-    Batch_PadData_Speech = []
-    Batch_PadData_Text = []
+    actual_lens_speech, actual_lens_text = [], []
+    Batch_PadData_Speech, Batch_PadData_Text = [], []
     for i in range(len(data_speech)):
         
         # temporal pooling operation for chunk-level speech representation
         ds, actualL = RdnMultiRslChunk(data_speech[i], sample_pool=[0.2, 0.4, 0.6, 0.8, 1.0])
-        ds = ParymidTempPool(ds, actual_lengths=actualL)
+        ds = TempParymidPool(ds, actual_lengths=actualL)
         dt = data_text[i]
         
         # prepend the global sentence-level summary token
@@ -66,16 +62,13 @@ def collate_fn_train(batch):
 def collate_fn_eval(batch):
     # list of batched data/labels
     data_speech, data_text, label_act, label_dom, label_val = zip(*batch)
-    
-    actual_lens_speech = []
-    actual_lens_text = []
-    Batch_PadData_Speech = []
-    Batch_PadData_Text = []
+    actual_lens_speech, actual_lens_text = [], []
+    Batch_PadData_Speech, Batch_PadData_Text = [], []
     for i in range(len(data_speech)):
         
         # temporal pooling operation for chunk-level speech representation
         ds, actualL = RdnMultiRslChunk(data_speech[i], sample_pool=[1.0])
-        ds = ParymidTempPool(ds, actual_lengths=actualL)
+        ds = TempParymidPool(ds, actual_lengths=actualL)
         dt = data_text[i]
         
         # prepend the global sentence-level summary token
@@ -112,7 +105,7 @@ def model_validation(model, valid_loader):
     with torch.no_grad():
         batch_loss_valid_all = []
         for _, data_batch in enumerate(tqdm(valid_loader, file=sys.stdout)):
-            # Input Tensor Data/Labels/Masks
+            # input Tensor data/labels/masks
             inp_ds, inp_dt, tar_act, tar_dom, tar_val, msk_ds, msk_dt = data_batch
             inp_ds, inp_dt = inp_ds.cuda().float(), inp_dt.cuda().float()
             tar_act, tar_dom, tar_val = tar_act.cuda().float(), tar_dom.cuda().float(), tar_val.cuda().float()
@@ -129,23 +122,19 @@ def model_testing(model, test_loader):
     # loading de-norm parameters
     from scipy.io import loadmat
     norm_parameters_speech = 'NormTerm_Speech'
-    Label_mean_act = loadmat('../'+norm_parameters_speech+'/act_norm_means.mat')['normal_para'][0][0]
-    Label_std_act = loadmat('../'+norm_parameters_speech+'/act_norm_stds.mat')['normal_para'][0][0]
-    Label_mean_dom = loadmat('../'+norm_parameters_speech+'/dom_norm_means.mat')['normal_para'][0][0]
-    Label_std_dom = loadmat('../'+norm_parameters_speech+'/dom_norm_stds.mat')['normal_para'][0][0]
-    Label_mean_val = loadmat('../'+norm_parameters_speech+'/val_norm_means.mat')['normal_para'][0][0]
-    Label_std_val = loadmat('../'+norm_parameters_speech+'/val_norm_stds.mat')['normal_para'][0][0]
+    Label_mean_act = loadmat('./'+norm_parameters_speech+'/act_norm_means.mat')['normal_para'][0][0]
+    Label_std_act = loadmat('./'+norm_parameters_speech+'/act_norm_stds.mat')['normal_para'][0][0]
+    Label_mean_dom = loadmat('./'+norm_parameters_speech+'/dom_norm_means.mat')['normal_para'][0][0]
+    Label_std_dom = loadmat('./'+norm_parameters_speech+'/dom_norm_stds.mat')['normal_para'][0][0]
+    Label_mean_val = loadmat('./'+norm_parameters_speech+'/val_norm_means.mat')['normal_para'][0][0]
+    Label_std_val = loadmat('./'+norm_parameters_speech+'/val_norm_stds.mat')['normal_para'][0][0]
     # model testing mode
     model.eval()
-    Pred_Act = []
-    Pred_Dom = []
-    Pred_Val = []
-    GT_Act = []
-    GT_Dom = []
-    GT_Val = []
+    Pred_Act, Pred_Dom, Pred_Val = [], [], []
+    GT_Act, GT_Dom, GT_Val = [], [], []
     with torch.no_grad():
         for _, data_batch in enumerate(tqdm(test_loader, file=sys.stdout)):
-            # Input Tensor Data/Labels/Masks
+            # input Tensor data/labels/masks
             inp_ds, inp_dt, tar_act, tar_dom, tar_val, msk_ds, msk_dt = data_batch
             inp_ds, inp_dt = inp_ds.cuda().float(), inp_dt.cuda().float()
             msk_ds, msk_dt = msk_ds.cuda(), msk_dt.cuda()
@@ -174,17 +163,18 @@ def model_testing(model, test_loader):
 ###############################################################################
 
 
-# Parameters
+
+# fixed parameters
 iter_max = 5000
 batch_size = 128
 shuffle = True
 max_length = 128
 
-# I/O PATH settings
+# I/O PATHs
 SAVING_PATH = './Models/'
-label_dir = '/media/winston/UTD-MSP/Speech_Datasets/MSP-PODCAST-Publish-1.10/Labels/labels_consensus.csv'
-root_dir = ['/media/winston/UTD-MSP/Speech_Datasets/MSP-PODCAST-Publish-1.10/Features/Wav2Vec1024/feat_mat/',
-            '/media/winston/UTD-MSP/Speech_Datasets/MSP-PODCAST-Publish-1.10/Features/RoBERTa_Embedding768/feat_mat/']
+label_dir = './MSP-PODCAST-Publish-1.10/Labels/labels_consensus.csv'
+root_dir = ['./MSP-PODCAST-Publish-1.10/Features/Wav2Vec1024/feat_mat/',
+            './MSP-PODCAST-Publish-1.10/Features/RoBERTa768/feat_mat/']
 
 # loading the model
 model = TransformerENC_CoAtten(hidden_dim=256, nhead=4, max_len=max_length)
@@ -247,7 +237,7 @@ while True:
         model.train()
         iter_count += 1
         
-        # Input Tensor Data/Labels/Masks
+        # input Tensor data/labels/masks
         inp_ds, inp_dt, tar_act, tar_dom, tar_val, msk_ds, msk_dt = data_batch
         inp_ds, inp_dt = inp_ds.cuda().float(), inp_dt.cuda().float()
         tar_act, tar_dom, tar_val = tar_act.cuda().float(), tar_dom.cuda().float(), tar_val.cuda().float()
@@ -292,7 +282,7 @@ while True:
                     print("=> Validation Loss did not improve (Iteration="+str(iter_count)+")")
             print('=================================================================')        
 
-# Drawing Loss Curve for Epoch-based and Batch-based
+# drawing loss curves
 Iter_trainLoss_All = np.mean(np.array(Iter_trainLoss_All[:len(Iter_validLoss_All)*num_iter_to_valid]).reshape(-1, num_iter_to_valid), axis=1).tolist()
 plt.title('Epoch-Loss Curve')
 plt.plot(Iter_trainLoss_All,color='blue',linewidth=3)
@@ -315,4 +305,3 @@ print('Act-CCC: '+str(CCC_Act))
 print('Dom-CCC: '+str(CCC_Dom))
 print('Val-CCC: '+str(CCC_Val))
 print('===================================================')
-

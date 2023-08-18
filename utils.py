@@ -1,27 +1,27 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Thu Oct 10 15:44:00 2019
+@author: Wei-Cheng (Winston) Lin
 
-@author: winston
+Helper and utility functions.
 """
-from difflib import SequenceMatcher
 import pandas as pd
 import numpy as np
 import torch
 import textgrid
 import random
-np.random.seed(794)
-# random.seed(12)
 
 
-# let's try MTL framework this time!!
 def getPaths(path_label, split_set):
     """
-    This function is for filtering data by different constraints of label
+    This function filters data by the given subset.
+    
     Args:
-        path_label$ (str): path of label.
-        split_set$ (str): 'Train', 'Development' or 'Test' are supported.
+        path_label$ (str): path of the label table
+        split_set$ (str): 'Train', 'Development' or 'Test1'
+        
+    return: MTL labels
+        file_paths, aro_label, dom_label, val_label
     """
     label_table = pd.read_csv(path_label)
     whole_fnames = (label_table['FileName'].values).astype('str')
@@ -29,14 +29,10 @@ def getPaths(path_label, split_set):
     emo_act = label_table['EmoAct'].values
     emo_dom = label_table['EmoDom'].values
     emo_val = label_table['EmoVal'].values
-    _paths = []
-    _label_act = []
-    _label_dom = []
-    _label_val = []
+    _paths, _label_act, _label_dom, _label_val = [], [], [], []
     for i in range(len(whole_fnames)):
-        # Constrain with Split Sets      
+        # constrain with split-set (if any)
         if split_sets[i]==split_set:
-            # Constrain with Emotional Labels
             _paths.append(whole_fnames[i])
             _label_act.append(emo_act[i])
             _label_dom.append(emo_dom[i])
@@ -56,15 +52,10 @@ def cc_coef(output, target):
     return 1 - 2 * torch.mean((target - mu_y_true) * (output - mu_y_pred)) / (torch.var(target) + torch.var(output) + torch.mean((mu_y_pred - mu_y_true)**2))    
 
 def prepare_AlignEmoSet(path_label, split_set):
-    # PATH settings
-    align_root_dir = '/media/winston/UTD-MSP/Speech_Datasets/MSP-PODCAST-Publish-1.10/ForceAligned/'
+    align_root_dir = './MSP-PODCAST-Publish-1.10/ForceAligned/'
     set_paths, set_labels_act, set_labels_dom, set_labels_val = getPaths(path_label, split_set)
-    # Main function
-    File_Name = []
-    EmoAct_Rsl = []
-    EmoDom_Rsl = []
-    EmoVal_Rsl = []
-    Align_Rsl = []
+    # main function
+    File_Name, EmoAct_Rsl, EmoDom_Rsl, EmoVal_Rsl, Align_Rsl = [], [], [], [], []
     for i in range(len(set_paths)):
         # load the word-alignment file 
         word_aligns = []
@@ -96,9 +87,7 @@ def prepare_AlignEmoSet(path_label, split_set):
             max_word_len = len(Align_Rsl[i])
     return np.array(File_Name), np.array(EmoAct_Rsl), np.array(EmoDom_Rsl), np.array(EmoVal_Rsl), Align_Rsl, max_word_len
 
-# split original batch data into batch small-chunks data with
-# proposed dynamic window step size which depends on the sentence duration 
-def DynamicChunkSplitData(Online_data, m, C, n):
+def DynamicChunkSplitData(SentData, m, C, n):
     """
     Note! This function can't process sequence length which less than given m
     (e.g., 1sec=62frames, if LLDs/Mel-Spec extracted by hop size 16ms then 16ms*62=0.992sec~=1sec)
@@ -106,33 +95,34 @@ def DynamicChunkSplitData(Online_data, m, C, n):
     Please make sure all your input data's length are greater then given m.
     
     Args:
-         Online_data$ (list): list of data array for a single sentence
-                   m$ (int) : chunk window length (i.e., number of frames within a chunk)
-                   C$ (int) : number of chunks splitted for a sentence
-                   n$ (int) : scaling factor to increase number of chunks splitted in a sentence
+         SentData$ (list): list of data array for sentences
+                m$ (int) : chunk window length (i.e., number of frames within a chunk)
+                C$ (int) : number of chunks splitted for a sentence
+                n$ (int) : scaling factor to increase number of chunks splitted in a sentence
     """
     num_shifts = n*C-1  # Tmax = 11sec (for the MSP-Podcast corpus), 
                         # chunk needs to shift 10 times to obtain total C=11 chunks for each sentence
-    Split_Data = []
-    for i in range(len(Online_data)):
-        data = Online_data[i]
+    SplitData = []
+    for i in range(len(SentData)):
+        data = SentData[i]
         # window-shifting size varied by differenct length of input utterance => dynamic step size
-        step_size = int(int(len(data)-m)/num_shifts)      
-        # Calculate index of chunks
+        step_size = int(int(len(data)-m)/num_shifts)
+        # calculate index of chunks
         start_idx = [0]
         end_idx = [m]
         for iii in range(num_shifts):
             start_idx.extend([start_idx[0] + (iii+1)*step_size])
-            end_idx.extend([end_idx[0] + (iii+1)*step_size])    
-        # Output Split Data
+            end_idx.extend([end_idx[0] + (iii+1)*step_size])
+        # output split data
         for iii in range(len(start_idx)):
-            Split_Data.append( data[start_idx[iii]: end_idx[iii]] )    
-    return np.array(Split_Data)
+            SplitData.append( data[start_idx[iii]: end_idx[iii]] )
+    return np.array(SplitData)
 
 def RdnMultiRslChunk(data, sample_pool=[0.2, 0.4, 0.6, 0.8, 1.0]):
     """
     This function random crops of the input data chunks to obtain multi-resolution chunk sizes for training. 
     After cropping the data, it would pad with zeros to maintain the same data shape.
+    
     Args:
             data$ (np.arry): the output of "DynamicChunkSplitData" function, shape=[C, m, feat-dim]
         sample_pool$ (list): list of sampling chunk-size options in secs
@@ -154,19 +144,22 @@ def RdnMultiRslChunk(data, sample_pool=[0.2, 0.4, 0.6, 0.8, 1.0]):
             MultiRslDataChunk.append(np.concatenate((rdn_crop_data,paddings),axis=0))
     return np.array(MultiRslDataChunk), Actual_Length
 
-# split original sentence data into small data chunks based on the number of words (varied C),
-# then, each data chunk is randomly cropped (varied F) in "main.py"- collate_fn
 def LexicalChunkSplitData_rdnVFVC(data, data_time, word_alignments, m):
+    """
+    We split the original sentence data into small data chunks based on their number of words (i.e., varied C: VC),
+    then, each data chunk is randomly cropped (i.e., varied F: VF) in "main.py"- collate_fn
+    """
     if len(word_alignments)<2:
         # C at least >=2, some sentences only have single/no words
         return DynamicChunkSplitData([data], m=m, C=2, n=1)
     else:
         return DynamicChunkSplitData([data], m=m, C=len(word_alignments), n=1)
 
-# parymid temporal pooling operation to deal with varied sizes chunk-inputs
-# we fixed the pooling levels=[1, 2, 4] for now
-def ParymidTempPool(data, actual_lengths=None):
+def TempParymidPool(data, actual_lengths=None):
     """
+    We apply temporal parymid pooling (TPP) operation to deal with varied sizes chunk-inputs.
+    This is a fixed implementation using hard-coded pooling levels=[1, 2, 4].
+    
     Args:
                data$ (np.arry): data matrix with shape= [Word-Chunks, Frames, Feats]
         actual_lengths$ (list): list of padding indexes for each word-chunk,
@@ -208,63 +201,3 @@ def ParymidTempPool(data, actual_lengths=None):
             pool_rsl.append(np.mean(actual_data,axis=0))
             Sent_Pool_Rsl.append(np.array(pool_rsl).reshape(-1))
     return np.array(Sent_Pool_Rsl)
-
-def random_drop_frames(data, ratio):
-    drop_idx = np.random.choice(len(data), size=int(len(data)*ratio), replace=False)
-    data[drop_idx] = 0
-    return data
-
-def packet_loss_frames(data, prob_N, prob_L):
-    """
-    This function uses two-states Markov Chain to simulate the effect of packet loss for speech frames.
-    Args:
-        data$ (np.arry): speech data matrix with shape= [Frames, Feats]
-        prob_N$ (float): probability of no-loss state
-        prob_L$ (float): probability of loss state
-    """
-    Pn, Pl = prob_N, prob_L
-    state = ["N", "L"]
-    TransMat = np.array([[Pn, 1-Pn], [1-Pl, Pl]])
-    # init state is always at the "N" (no-loss)
-    StartingState = 0
-    CurrentState = StartingState
-    PacketLoss_Mask = []
-    for i in range(len(data)):
-        # Deciding the next state using a random.choice()
-        # function, that takes list of states and the probability
-        # to go to the next states from our current state
-        CurrentState = np.random.choice([0, 1], p=TransMat[CurrentState])
-        # appending states to simulate packet losses
-        PacketLoss_Mask.append(state[CurrentState])
-    drop_idx = np.where(np.array(PacketLoss_Mask)=="L")[0]
-    data[drop_idx] = 0
-    return data
-
-def random_drop_words(dataS, dataT, dataS_time, fname, aligns, ratio):
-    token_dir = '/media/winston/UTD-MSP/Speech_Datasets/MSP-PODCAST-Publish-1.10/RoBERTa_Tokens/'
-    tokens = []
-    with open(token_dir+fname) as f:
-        _file_lines = f.readlines()
-        for i in range(len(_file_lines)):
-            tokens.append(_file_lines[i].strip())
-    num_words_to_drop = int(np.round(ratio*len(aligns)))
-    rdn_drop_idx = np.random.choice(len(aligns), size=num_words_to_drop, replace=False)
-    # main: random drop words
-    for iii in rdn_drop_idx:
-        # drop the speech frames based on the exact word-level alignment info
-        word_start, word_end = aligns[iii][0], aligns[iii][1]
-        drop_sphF_start = np.where(abs(dataS_time-word_start)==min(abs(dataS_time-word_start)))[0][0]
-        drop_sphF_end = np.where(abs(dataS_time-word_end)==min(abs(dataS_time-word_end)))[0][0]
-        dataS[drop_sphF_start:drop_sphF_end+1] = 0
-        # drop the text embd based on the most similar token
-        drop_word = aligns[iii][-1]
-        _highest_simscore = 0
-        drop_token_idx = 0
-        for jjj in range(len(tokens)):
-            _score = SequenceMatcher(None, drop_word, tokens[jjj]).ratio()
-            if _score > _highest_simscore:
-                _highest_simscore = _score
-                drop_token_idx = jjj
-        dataT[drop_token_idx] = 0
-    return dataS, dataT
-
