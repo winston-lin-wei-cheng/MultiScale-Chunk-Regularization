@@ -5,6 +5,7 @@
 
 Script to prepare feature normalization (z-norm) parameters. 
 """
+import os
 import pandas as pd
 import numpy as np
 from scipy.io import loadmat, savemat
@@ -43,6 +44,12 @@ TrainDataText = np.array(TrainDataText)
 TrainLabel_act = np.array(TrainLabel_act)
 TrainLabel_dom = np.array(TrainLabel_dom)
 TrainLabel_val = np.array(TrainLabel_val)
+
+# creating saving repo
+if not os.path.isdir('./NormTerm_Speech/'):
+    os.makedirs('./NormTerm_Speech/')
+if not os.path.isdir('./NormTerm_Text/'):
+    os.makedirs('./NormTerm_Text/')
 
 # saving norm parameters (i.e., mean and std of feats based on the 'Train' set)
 eps = 1e-10 # assign small eps to prevent std=0 case
