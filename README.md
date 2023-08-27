@@ -1,7 +1,7 @@
 # Multi-Scale Chunk Regularization for Audio-Text Emotion Recognition
 This is a Pytorch implementation of the paper: [Enhancing Resilience to Missing Data in Audio-Text Emotion Recognition with Multi-Scale Chunk Regularization](https://ieeexplore.ieee.org/XXX). The experiments and trained models were based on the MSP-Podcast v1.10 corpus & pretrained *wav2vec2-large-robust* (audio) and *RoBERTa-base* (text) features in the paper.
 
-![The full framework of the porposed model](/images/framework.pdf)
+![The full framework of the porposed model](/images/framework.png)
 
 
 # Suggested Environment and Requirements
